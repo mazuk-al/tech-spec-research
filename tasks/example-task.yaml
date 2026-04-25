@@ -1,0 +1,28 @@
+task_title: "Example cross-project technical specification research"
+goal: "Research the current implementation across frontend, backend, and gateway projects to prepare a draft Technical Specification."
+output_dir: "artifacts/example-task"
+
+projects:
+  - name: "frontend"
+    path: "/path/to/frontend"
+    focus: "User flows, UI states, client-side validation, API calls, and routes related to the task."
+  - name: "backend"
+    path: "/path/to/backend"
+    focus: "Domain logic, services, data models, permissions, validations, and persistence related to the task."
+  - name: "gateway"
+    path: "/path/to/gateway"
+    focus: "External/internal API routing, request/response contracts, authorization, and integration boundaries."
+
+constraints:
+  - "Research must be read-only."
+  - "Do not change source code in any researched project."
+  - "Do not invent files, classes, methods, endpoints, or behavior."
+  - "Separate confirmed facts from assumptions."
+  - "Reference concrete file paths when relevant files are found."
+
+expected_artifacts:
+  - "Per-project research reports"
+  - "Cross-project analysis"
+  - "Draft Technical Specification"
+  - "Critic review with risks and open questions"
+

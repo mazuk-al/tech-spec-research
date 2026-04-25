@@ -1,0 +1,6 @@
+.DS_Store
+artifacts/*
+!artifacts/.gitkeep
+scripts/run-current-task.sh
+tasks/*
+!tasks/example-task.yaml
