@@ -415,6 +415,121 @@ def require_project_dirs(projects: list[dict[str, str]]) -> None:
             fail(f"Project '{project['name']}' directory does not exist: {project_path}")
 
 
+def task_path_for_command(root_dir: Path, task_path: Path) -> str:
+    try:
+        return str(task_path.relative_to(root_dir))
+    except ValueError:
+        return str(task_path)
+
+
+def markdown_table_cell(value: str) -> str:
+    return value.replace("|", "\\|").replace("\n", " ")
+
+
+def write_index(
+    task: dict[str, Any],
+    task_path: Path,
+    root_dir: Path,
+    output_dir: Path,
+    full_report_paths: list[tuple[str, Path]],
+    summary_report_paths: list[tuple[str, Path]],
+    cross_project_analysis: Path,
+    draft_tech_spec: Path,
+    critic_review: Path,
+    stage_mode: str,
+    validation: dict[str, list[str]],
+) -> Path:
+    index_path = output_dir / "index.md"
+    task_arg = task_path_for_command(root_dir, task_path)
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+
+    lines = [
+        "# Research Pipeline Index",
+        "",
+        "## Task",
+        "",
+        f"- Task title: {task['task_title']}",
+        f"- Goal: {task['goal']}",
+        f"- Output directory: {output_dir}",
+        f"- Draft language: {task['draft_language']}",
+        f"- LLM provider: {task['llm_provider']}",
+        f"- Stage mode used: {stage_mode}",
+        "",
+        "## Token Saving",
+        "",
+        f"- enabled: {str(task['token_saving']['enabled']).lower()}",
+        "- use_summaries_for_later_stages: "
+        f"{str(task['token_saving']['use_summaries_for_later_stages']).lower()}",
+        "",
+        "## Projects",
+        "",
+        "| # | Name | Path | Focus |",
+        "|---|------|------|-------|",
+    ]
+
+    for index, project in enumerate(task["projects"], start=1):
+        lines.append(
+            "| "
+            f"{index} | "
+            f"{markdown_table_cell(project['name'])} | "
+            f"{markdown_table_cell(project['path'])} | "
+            f"{markdown_table_cell(project['focus'])} |"
+        )
+
+    lines.extend(["", "## Artifacts", "", "### Full Research", ""])
+    for _, path in full_report_paths:
+        lines.append(f"- {path}")
+
+    lines.extend(["", "### Summaries", ""])
+    for _, path in summary_report_paths:
+        lines.append(f"- {path}")
+
+    lines.extend(
+        [
+            "",
+            "### Pipeline Outputs",
+            "",
+            f"- Cross-project analysis: {cross_project_analysis}",
+            f"- Draft tech spec: {draft_tech_spec}",
+            f"- Critic review: {critic_review}",
+            "",
+            "## Validation Summary",
+            "",
+            "### Errors",
+            "",
+        ]
+    )
+
+    if validation["errors"]:
+        lines.extend(f"- {message}" for message in validation["errors"])
+    else:
+        lines.append("- None")
+
+    lines.extend(["", "### Warnings", ""])
+    if validation["warnings"]:
+        lines.extend(f"- {message}" for message in validation["warnings"])
+    else:
+        lines.append("- None")
+
+    lines.extend(
+        [
+            "",
+            "## Continue Commands",
+            "",
+            "```bash",
+            f"python3 scripts/run_task.py {task_arg} --skip-research",
+            f"python3 scripts/run_task.py {task_arg} --from merge",
+            f"python3 scripts/run_task.py {task_arg} --from draft",
+            f"python3 scripts/run_task.py {task_arg} --from critic",
+            "```",
+            "",
+        ]
+    )
+
+    index_path.write_text("\n".join(lines), encoding="utf-8")
+    return index_path
+
+
 def render_project_research_prompt(
     base_prompt: str,
     task: dict[str, Any],
@@ -662,6 +777,28 @@ def run_pipeline(task_path: Path, stage_mode: str) -> None:
         validate_pipeline_output("critic review", critic_review)
 
     print()
+    if validation["warnings"]:
+        print("Validation warnings:")
+        for message in validation["warnings"]:
+            print(f"- {message}")
+    else:
+        print("Validation: no warnings.")
+
+    index_path = write_index(
+        task,
+        task_path,
+        root_dir,
+        output_dir,
+        full_report_paths,
+        summary_report_paths,
+        cross_project_analysis,
+        draft_tech_spec,
+        critic_review,
+        stage_mode,
+        validation,
+    )
+
+    print()
     print("Created artifacts:")
     for _, report_path in full_report_paths:
         print(f"- {report_path}")
@@ -670,13 +807,7 @@ def run_pipeline(task_path: Path, stage_mode: str) -> None:
     print(f"- {cross_project_analysis}")
     print(f"- {draft_tech_spec}")
     print(f"- {critic_review}")
-    print()
-    if validation["warnings"]:
-        print("Validation warnings:")
-        for message in validation["warnings"]:
-            print(f"- {message}")
-    else:
-        print("Validation: no warnings.")
+    print(f"- {index_path}")
 
 
 def main() -> None:

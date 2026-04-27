@@ -209,6 +209,11 @@ OUTPUT_DIR/
   02_cross_project_analysis.md
   03_draft_tech_spec.md
   04_critic_review.md
+  index.md
 ```
+
+## Index
+
+`index.md` is created in `OUTPUT_DIR` after each successful run. It contains task metadata, projects, artifact paths, validation summary, and continue commands.
 
 These files are local working artifacts and are ignored by git.
