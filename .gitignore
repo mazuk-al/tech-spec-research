@@ -1,4 +1,6 @@
 .DS_Store
+__pycache__/
+*.pyc
 artifacts/*
 !artifacts/.gitkeep
 scripts/run-current-task.sh

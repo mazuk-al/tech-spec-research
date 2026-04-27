@@ -1,16 +1,18 @@
 task_title: "Example cross-project technical specification research"
-goal: "Research the current implementation across frontend, backend, and gateway projects to prepare a draft Technical Specification."
+goal: "Research the current implementation across multiple projects to prepare a draft Technical Specification."
 output_dir: "artifacts/example-task"
+draft_language: "ru"
+llm_provider: "codex"
 
 projects:
   - name: "frontend"
-    path: "/path/to/frontend"
+    path: "/absolute/path/to/frontend"
     focus: "User flows, UI states, client-side validation, API calls, and routes related to the task."
   - name: "backend"
-    path: "/path/to/backend"
+    path: "/absolute/path/to/backend"
     focus: "Domain logic, services, data models, permissions, validations, and persistence related to the task."
   - name: "gateway"
-    path: "/path/to/gateway"
+    path: "/absolute/path/to/gateway"
     focus: "External/internal API routing, request/response contracts, authorization, and integration boundaries."
 
 constraints:
@@ -25,4 +27,3 @@ expected_artifacts:
   - "Cross-project analysis"
   - "Draft Technical Specification"
   - "Critic review with risks and open questions"
-
