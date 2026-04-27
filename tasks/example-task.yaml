@@ -4,6 +4,10 @@ output_dir: "artifacts/example-task"
 draft_language: "ru"
 llm_provider: "codex"
 
+token_saving:
+  enabled: true
+  use_summaries_for_later_stages: true
+
 projects:
   - name: "frontend"
     path: "/absolute/path/to/frontend"

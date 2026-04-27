@@ -50,10 +50,15 @@ def strip_inline_comment(value: str) -> str:
     return value.strip()
 
 
-def parse_scalar(value: str) -> str:
+def parse_scalar(value: str) -> Any:
     value = strip_inline_comment(value).strip()
     if not value:
         return ""
+
+    if value == "true":
+        return True
+    if value == "false":
+        return False
 
     if (value.startswith('"') and value.endswith('"')) or (
         value.startswith("'") and value.endswith("'")
@@ -68,13 +73,14 @@ def parse_task_yaml(path: Path) -> dict[str, Any]:
 
     Supported shapes:
     - top-level scalar: key: "value"
+    - top-level dictionary with scalar fields
     - top-level list of strings
     - top-level list of dictionaries with scalar fields
     """
 
     task: dict[str, Any] = {}
     current_key: str | None = None
-    current_item: dict[str, str] | None = None
+    current_item: dict[str, Any] | None = None
 
     for raw_line in path.read_text(encoding="utf-8").splitlines():
         if not raw_line.strip() or raw_line.lstrip().startswith("#"):
@@ -101,10 +107,9 @@ def parse_task_yaml(path: Path) -> dict[str, Any]:
         if current_key is None:
             fail(f"Unexpected nested YAML line in {path}: {raw_line}")
 
-        if not isinstance(task[current_key], list):
-            fail(f"YAML key is not a list: {current_key}")
-
         if line.startswith("- "):
+            if not isinstance(task[current_key], list):
+                fail(f"YAML key is not a list: {current_key}")
             item = line[2:].strip()
             if ":" in item:
                 key, value = item.split(":", 1)
@@ -118,6 +123,15 @@ def parse_task_yaml(path: Path) -> dict[str, Any]:
         if current_item is not None and ":" in line:
             key, value = line.split(":", 1)
             current_item[key.strip()] = parse_scalar(value)
+            continue
+
+        if current_item is None and ":" in line:
+            if task[current_key] == []:
+                task[current_key] = {}
+            if not isinstance(task[current_key], dict):
+                fail(f"YAML key is not a dictionary: {current_key}")
+            key, value = line.split(":", 1)
+            task[current_key][key.strip()] = parse_scalar(value)
             continue
 
         fail(f"Unsupported YAML line in {path}: {raw_line}")
@@ -137,6 +151,21 @@ def require_string_list(task: dict[str, Any], key: str) -> list[str]:
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         fail(f"task.yaml field '{key}' must be a list of strings.")
     return value
+
+
+def optional_bool_mapping(task: dict[str, Any], key: str) -> dict[str, bool]:
+    value = task.get(key)
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        fail(f"task.yaml field '{key}' must be an object.")
+
+    normalized: dict[str, bool] = {}
+    for field, field_value in value.items():
+        if not isinstance(field_value, bool):
+            fail(f"task.yaml field '{key}.{field}' must be a boolean.")
+        normalized[field] = field_value
+    return normalized
 
 
 def require_projects(task: dict[str, Any]) -> list[dict[str, str]]:
@@ -168,6 +197,11 @@ def validate_task(task: dict[str, Any]) -> dict[str, Any]:
     projects = require_projects(task)
     constraints = require_string_list(task, "constraints")
     expected_artifacts = require_string_list(task, "expected_artifacts")
+    token_saving = {
+        "enabled": True,
+        "use_summaries_for_later_stages": True,
+    }
+    token_saving.update(optional_bool_mapping(task, "token_saving"))
 
     if draft_language not in SUPPORTED_DRAFT_LANGUAGES:
         fail(
@@ -182,7 +216,13 @@ def validate_task(task: dict[str, Any]) -> dict[str, Any]:
         )
 
     if llm_provider not in IMPLEMENTED_PROVIDERS:
-        fail(f"Provider '{llm_provider}' is planned but not implemented in v2.1.")
+        fail(f"Provider '{llm_provider}' is planned but not implemented in v2.2.")
+
+    if (
+        token_saving["enabled"] is not True
+        or token_saving["use_summaries_for_later_stages"] is not True
+    ):
+        fail("Non-summary mode is not implemented in v2.2.")
 
     for project in projects:
         project_path = Path(project["path"]).expanduser()
@@ -201,6 +241,7 @@ def validate_task(task: dict[str, Any]) -> dict[str, Any]:
         "projects": projects,
         "constraints": constraints,
         "expected_artifacts": expected_artifacts,
+        "token_saving": token_saving,
     }
 
 
@@ -274,6 +315,27 @@ def render_project_research_prompt(
 {markdown_list(task["expected_artifacts"])}
 
 Use the project path above as the codebase root. Research must be read-only.
+"""
+
+
+def render_project_summary_prompt(
+    base_prompt: str,
+    task: dict[str, Any],
+    project: dict[str, str],
+    full_research_report: Path,
+) -> str:
+    return f"""{base_prompt}
+
+## Task / Project Context
+
+- Task title: {task["task_title"]}
+- Goal: {task["goal"]}
+- Project name: {project["name"]}
+- Project focus: {project["focus"]}
+
+## Full Research Report
+
+{full_research_report.read_text(encoding="utf-8")}
 """
 
 
@@ -385,25 +447,40 @@ def run_pipeline(task_path: Path) -> None:
     if not output_dir.is_absolute():
         output_dir = root_dir / output_dir
 
-    research_dir = output_dir / "01_research"
-    research_dir.mkdir(parents=True, exist_ok=True)
+    full_research_dir = output_dir / "01_research" / "full"
+    summary_research_dir = output_dir / "01_research" / "summary"
+    full_research_dir.mkdir(parents=True, exist_ok=True)
+    summary_research_dir.mkdir(parents=True, exist_ok=True)
 
     project_research_prompt = read_prompt(root_dir, "01_project_research.md")
-    cross_project_prompt = read_prompt(root_dir, "02_cross_project_merge.md")
-    draft_prompt = read_prompt(root_dir, "03_draft_tech_spec.md")
-    critic_prompt = read_prompt(root_dir, "04_critic_review.md")
+    project_summary_prompt = read_prompt(root_dir, "02_project_summary.md")
+    cross_project_prompt = read_prompt(root_dir, "03_cross_project_merge.md")
+    draft_prompt = read_prompt(root_dir, "04_draft_tech_spec.md")
+    critic_prompt = read_prompt(root_dir, "05_critic_review.md")
 
-    report_paths: list[tuple[str, Path]] = []
+    full_report_paths: list[tuple[str, Path]] = []
+    summary_report_paths: list[tuple[str, Path]] = []
     used_slugs: set[str] = set()
 
     for index, project in enumerate(task["projects"], start=1):
         slug = unique_project_slug(project["name"], used_slugs)
-        report_path = research_dir / f"{index:02d}_{slug}.research.md"
-        report_paths.append((project["name"], report_path))
+        full_report_path = full_research_dir / f"{index:02d}_{slug}.research.md"
+        summary_report_path = summary_research_dir / f"{index:02d}_{slug}.summary.md"
+        full_report_paths.append((project["name"], full_report_path))
+        summary_report_paths.append((project["name"], summary_report_path))
 
         prompt = render_project_research_prompt(project_research_prompt, task, project)
         print(f"Running project research: {project['name']}")
-        run_codex(Path(project["path"]), prompt, report_path)
+        run_codex(Path(project["path"]), prompt, full_report_path)
+
+        summary_prompt = render_project_summary_prompt(
+            project_summary_prompt,
+            task,
+            project,
+            full_report_path,
+        )
+        print(f"Running project summary: {project['name']}")
+        run_codex(Path(project["path"]), summary_prompt, summary_report_path)
 
     cross_project_analysis = output_dir / "02_cross_project_analysis.md"
     draft_tech_spec = output_dir / "03_draft_tech_spec.md"
@@ -412,14 +489,19 @@ def run_pipeline(task_path: Path) -> None:
     print("Running cross-project merge")
     run_codex(
         root_dir,
-        render_cross_project_prompt(cross_project_prompt, task, report_paths),
+        render_cross_project_prompt(cross_project_prompt, task, summary_report_paths),
         cross_project_analysis,
     )
 
     print("Running draft technical specification")
     run_codex(
         root_dir,
-        render_draft_prompt(draft_prompt, task, cross_project_analysis, report_paths),
+        render_draft_prompt(
+            draft_prompt,
+            task,
+            cross_project_analysis,
+            summary_report_paths,
+        ),
         draft_tech_spec,
     )
 
@@ -431,14 +513,16 @@ def run_pipeline(task_path: Path) -> None:
             task,
             draft_tech_spec,
             cross_project_analysis,
-            report_paths,
+            summary_report_paths,
         ),
         critic_review,
     )
 
     print()
     print("Created artifacts:")
-    for _, report_path in report_paths:
+    for _, report_path in full_report_paths:
+        print(f"- {report_path}")
+    for _, report_path in summary_report_paths:
         print(f"- {report_path}")
     print(f"- {cross_project_analysis}")
     print(f"- {draft_tech_spec}")

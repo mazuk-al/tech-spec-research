@@ -5,9 +5,10 @@
 It is intended for tasks where a change spans multiple projects. The tool runs a sequence of Codex prompts that:
 
 1. Research each project independently.
-2. Merge findings into cross-project analysis.
-3. Draft a Technical Specification in Russian or English.
-4. Review the draft for risks, gaps, assumptions, and open questions.
+2. Compress each full project report into a compact summary.
+3. Merge project summaries into cross-project analysis.
+4. Draft a Technical Specification in Russian or English.
+5. Review the draft for risks, gaps, assumptions, and open questions.
 
 This repository is intentionally small. It does not include dependency management or package scripts.
 
@@ -26,9 +27,10 @@ tasks/
   example-task.yaml
 prompts/
   01_project_research.md
-  02_cross_project_merge.md
-  03_draft_tech_spec.md
-  04_critic_review.md
+  02_project_summary.md
+  03_cross_project_merge.md
+  04_draft_tech_spec.md
+  05_critic_review.md
 artifacts/
   .gitkeep
 scripts/
@@ -43,21 +45,24 @@ README.md
 
 ## Flow
 
-The v2.1 flow is:
+The v2.2 flow is:
 
 1. Describe the task in a task YAML file.
-2. Run read-only research for each listed project.
-3. Merge project reports into cross-project analysis.
-4. Draft a Technical Specification.
-5. Review the draft for risks, gaps, and open questions.
+2. Run read-only full research for each listed project.
+3. Summarize each full project report.
+4. Merge project summaries into cross-project analysis.
+5. Draft a Technical Specification from cross-project analysis and project summaries.
+6. Review the draft using the same summary-based context.
 
 The runner is intended to run locally. It should not modify researched repositories: all project research must be read-only.
 
 Every research output should reference real files, classes, methods, endpoints, routes, or contracts when they are found. Unconfirmed statements must be clearly marked as assumptions.
 
+Later pipeline stages use project summaries instead of full research reports to reduce token usage while preserving critical facts.
+
 ## Usage
 
-The v2.1 runner reads `task.yaml` directly:
+The v2.2 runner reads `task.yaml` directly:
 
 ```bash
 python scripts/run_task.py tasks/example-task.yaml
@@ -73,6 +78,10 @@ goal: "Research the current implementation across projects."
 output_dir: "artifacts/example-task"
 draft_language: "ru"
 llm_provider: "codex"
+
+token_saving:
+  enabled: true
+  use_summaries_for_later_stages: true
 
 projects:
   - name: "project-a"
@@ -101,10 +110,12 @@ Supported `draft_language` values:
 Supported `llm_provider` values:
 
 - `codex`: implemented
-- `claude-code`: planned, not implemented in v2.1
-- `local`: planned, not implemented in v2.1
+- `claude-code`: planned, not implemented in v2.2
+- `local`: planned, not implemented in v2.2
 
 The runner includes a small built-in parser for the supported task YAML shape. It is not a general-purpose YAML parser.
+
+In v2.2, `token_saving.enabled` and `token_saving.use_summaries_for_later_stages` default to `true`. Non-summary mode is not implemented.
 
 ## Legacy Bash Runner
 
@@ -164,8 +175,12 @@ The pipeline writes these Markdown artifacts to `OUTPUT_DIR`:
 ```text
 OUTPUT_DIR/
   01_research/
-    01_<project>.research.md
-    02_<project>.research.md
+    full/
+      01_<project>.research.md
+      02_<project>.research.md
+    summary/
+      01_<project>.summary.md
+      02_<project>.summary.md
   02_cross_project_analysis.md
   03_draft_tech_spec.md
   04_critic_review.md
