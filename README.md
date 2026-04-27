@@ -86,6 +86,15 @@ python3 scripts/run_task.py tasks/current-task.yaml --from critic
 - `--from draft` uses existing summary files and cross-project analysis, then runs draft and critic.
 - `--from critic` uses existing summary files, cross-project analysis, and draft tech spec, then runs critic.
 
+## Validation
+
+The runner performs basic artifact validation between stages:
+
+- Missing or empty files are fatal errors.
+- Missing required Markdown sections are warnings.
+- Full research should contain file-like references or `Not found`.
+- Warnings do not stop the pipeline.
+
 ## Task Format
 
 ```yaml

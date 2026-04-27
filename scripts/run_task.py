@@ -293,9 +293,110 @@ def require_file(label: str, path: Path) -> None:
         fail(f"{label} file does not exist: {path}")
 
 
-def require_summary_files(summary_report_paths: list[tuple[str, Path]]) -> None:
+def require_existing_file(label: str, path: Path) -> None:
+    require_file(label, path)
+
+
+def require_non_empty_file(label: str, path: Path) -> None:
+    require_existing_file(label, path)
+    if path.stat().st_size == 0:
+        fail(f"{label} file is empty: {path}")
+
+
+def add_warning(validation: dict[str, list[str]], message: str) -> None:
+    validation["warnings"].append(message)
+    print(f"Warning: {message}", file=sys.stderr)
+
+
+def validate_required_sections(
+    label: str,
+    path: Path,
+    sections: list[str],
+    validation: dict[str, list[str]],
+) -> None:
+    content = path.read_text(encoding="utf-8")
+    for section in sections:
+        pattern = rf"^##\s+{re.escape(section)}\s*$"
+        if re.search(pattern, content, flags=re.MULTILINE) is None:
+            add_warning(validation, f"{label} is missing section '{section}': {path}")
+
+
+def validate_full_research_file(path: Path, validation: dict[str, list[str]]) -> None:
+    require_non_empty_file("full research", path)
+    validate_required_sections(
+        "full research",
+        path,
+        [
+            "Project role in this task",
+            "Relevant files/classes/methods",
+            "Relevant endpoints/routes",
+            "Current flow",
+            "Change points",
+            "Risks",
+            "Open questions",
+            "What to include in the technical specification",
+            "Confirmed facts",
+            "Assumptions",
+            "Not found",
+        ],
+        validation,
+    )
+    content = path.read_text(encoding="utf-8")
+    has_file_like_reference = any(
+        marker in content
+        for marker in (
+            "/",
+            ".php",
+            ".js",
+            ".ts",
+            ".py",
+            ".go",
+            ".vue",
+            ".xml",
+            ".yaml",
+            ".yml",
+            ".json",
+        )
+    )
+    if not has_file_like_reference and "Not found" not in content:
+        add_warning(
+            validation,
+            f"full research has no file-like references and no 'Not found' text: {path}",
+        )
+
+
+def validate_summary_file(path: Path, validation: dict[str, list[str]]) -> None:
+    require_non_empty_file("summary", path)
+    validate_required_sections(
+        "summary",
+        path,
+        [
+            "Project role",
+            "Confirmed facts",
+            "Key files/classes/methods",
+            "Key endpoints/routes/contracts",
+            "Current flow",
+            "Change points",
+            "Risks",
+            "Open questions",
+            "Assumptions",
+            "Not found",
+        ],
+        validation,
+    )
+
+
+def validate_pipeline_output(label: str, path: Path) -> None:
+    require_non_empty_file(label, path)
+
+
+def require_summary_files(
+    summary_report_paths: list[tuple[str, Path]],
+    validation: dict[str, list[str]],
+) -> None:
     for project_name, summary_path in summary_report_paths:
-        require_file(f"summary report for project '{project_name}'", summary_path)
+        require_existing_file(f"summary report for project '{project_name}'", summary_path)
+        validate_summary_file(summary_path, validation)
 
 
 def normalize_stage_mode(skip_research: bool, from_stage: str | None) -> str:
@@ -463,6 +564,7 @@ def render_critic_prompt(
 def run_pipeline(task_path: Path, stage_mode: str) -> None:
     root_dir = Path(__file__).resolve().parent.parent
     task = validate_task(parse_task_yaml(task_path))
+    validation: dict[str, list[str]] = {"warnings": [], "errors": []}
 
     output_dir = Path(task["output_dir"]).expanduser()
     if not output_dir.is_absolute():
@@ -503,6 +605,7 @@ def run_pipeline(task_path: Path, stage_mode: str) -> None:
             prompt = render_project_research_prompt(project_research_prompt, task, project)
             print(f"Running project research: {project['name']}")
             run_codex(Path(project["path"]), prompt, full_report_path)
+            validate_full_research_file(full_report_path, validation)
 
             summary_prompt = render_project_summary_prompt(
                 project_summary_prompt,
@@ -512,9 +615,10 @@ def run_pipeline(task_path: Path, stage_mode: str) -> None:
             )
             print(f"Running project summary: {project['name']}")
             run_codex(Path(project["path"]), summary_prompt, summary_report_path)
+            validate_summary_file(summary_report_path, validation)
 
     if stage_mode in {"merge", "draft", "critic"}:
-        require_summary_files(summary_report_paths)
+        require_summary_files(summary_report_paths, validation)
 
     if stage_mode in {"research", "merge"}:
         print("Running cross-project merge")
@@ -523,9 +627,10 @@ def run_pipeline(task_path: Path, stage_mode: str) -> None:
             render_cross_project_prompt(cross_project_prompt, task, summary_report_paths),
             cross_project_analysis,
         )
+        validate_pipeline_output("cross-project analysis", cross_project_analysis)
 
     if stage_mode in {"research", "merge", "draft"}:
-        require_file("cross-project analysis", cross_project_analysis)
+        validate_pipeline_output("cross-project analysis", cross_project_analysis)
         print("Running draft technical specification")
         run_codex(
             root_dir,
@@ -537,10 +642,11 @@ def run_pipeline(task_path: Path, stage_mode: str) -> None:
             ),
             draft_tech_spec,
         )
+        validate_pipeline_output("draft technical specification", draft_tech_spec)
 
     if stage_mode in {"research", "merge", "draft", "critic"}:
-        require_file("cross-project analysis", cross_project_analysis)
-        require_file("draft technical specification", draft_tech_spec)
+        validate_pipeline_output("cross-project analysis", cross_project_analysis)
+        validate_pipeline_output("draft technical specification", draft_tech_spec)
         print("Running critic review")
         run_codex(
             root_dir,
@@ -553,6 +659,7 @@ def run_pipeline(task_path: Path, stage_mode: str) -> None:
             ),
             critic_review,
         )
+        validate_pipeline_output("critic review", critic_review)
 
     print()
     print("Created artifacts:")
@@ -563,6 +670,13 @@ def run_pipeline(task_path: Path, stage_mode: str) -> None:
     print(f"- {cross_project_analysis}")
     print(f"- {draft_tech_spec}")
     print(f"- {critic_review}")
+    print()
+    if validation["warnings"]:
+        print("Validation warnings:")
+        for message in validation["warnings"]:
+            print(f"- {message}")
+    else:
+        print("Validation: no warnings.")
 
 
 def main() -> None:
