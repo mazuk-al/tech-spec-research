@@ -70,6 +70,22 @@ python scripts/run_task.py tasks/example-task.yaml
 
 `task.yaml` is the source of truth. The runner supports any number of projects in `projects[]`.
 
+## Stage Control
+
+Continue from an existing stage when earlier artifacts already exist:
+
+```bash
+python3 scripts/run_task.py tasks/current-task.yaml --skip-research
+python3 scripts/run_task.py tasks/current-task.yaml --from merge
+python3 scripts/run_task.py tasks/current-task.yaml --from draft
+python3 scripts/run_task.py tasks/current-task.yaml --from critic
+```
+
+- `--skip-research` aliases `--from merge`.
+- `--from merge` uses existing summary files and runs merge, draft, and critic.
+- `--from draft` uses existing summary files and cross-project analysis, then runs draft and critic.
+- `--from critic` uses existing summary files, cross-project analysis, and draft tech spec, then runs critic.
+
 ## Task Format
 
 ```yaml

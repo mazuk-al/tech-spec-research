@@ -228,8 +228,6 @@ def validate_task(task: dict[str, Any]) -> dict[str, Any]:
         project_path = Path(project["path"]).expanduser()
         if not project_path.is_absolute():
             fail(f"Project '{project['name']}' path must be absolute: {project['path']}")
-        if not project_path.is_dir():
-            fail(f"Project '{project['name']}' directory does not exist: {project_path}")
         project["path"] = str(project_path)
 
     return {
@@ -288,6 +286,32 @@ def run_codex(workdir: Path, prompt: str, output_file: Path) -> None:
         prompt,
     ]
     subprocess.run(command, cwd=workdir, check=True)
+
+
+def require_file(label: str, path: Path) -> None:
+    if not path.is_file():
+        fail(f"{label} file does not exist: {path}")
+
+
+def require_summary_files(summary_report_paths: list[tuple[str, Path]]) -> None:
+    for project_name, summary_path in summary_report_paths:
+        require_file(f"summary report for project '{project_name}'", summary_path)
+
+
+def normalize_stage_mode(skip_research: bool, from_stage: str | None) -> str:
+    if skip_research and from_stage in {None, "research", "merge"}:
+        print("--skip-research aliases --from merge.")
+        return "merge"
+    if skip_research and from_stage in {"draft", "critic"}:
+        fail("--skip-research can only be combined with --from research or --from merge.")
+    return from_stage or "research"
+
+
+def require_project_dirs(projects: list[dict[str, str]]) -> None:
+    for project in projects:
+        project_path = Path(project["path"])
+        if not project_path.is_dir():
+            fail(f"Project '{project['name']}' directory does not exist: {project_path}")
 
 
 def render_project_research_prompt(
@@ -436,12 +460,9 @@ def render_critic_prompt(
 """
 
 
-def run_pipeline(task_path: Path) -> None:
+def run_pipeline(task_path: Path, stage_mode: str) -> None:
     root_dir = Path(__file__).resolve().parent.parent
     task = validate_task(parse_task_yaml(task_path))
-
-    if shutil.which("codex") is None:
-        fail("codex command is not available. Install or configure Codex CLI.")
 
     output_dir = Path(task["output_dir"]).expanduser()
     if not output_dir.is_absolute():
@@ -449,9 +470,6 @@ def run_pipeline(task_path: Path) -> None:
 
     full_research_dir = output_dir / "01_research" / "full"
     summary_research_dir = output_dir / "01_research" / "summary"
-    full_research_dir.mkdir(parents=True, exist_ok=True)
-    summary_research_dir.mkdir(parents=True, exist_ok=True)
-
     project_research_prompt = read_prompt(root_dir, "01_project_research.md")
     project_summary_prompt = read_prompt(root_dir, "02_project_summary.md")
     cross_project_prompt = read_prompt(root_dir, "03_cross_project_merge.md")
@@ -469,54 +487,72 @@ def run_pipeline(task_path: Path) -> None:
         full_report_paths.append((project["name"], full_report_path))
         summary_report_paths.append((project["name"], summary_report_path))
 
-        prompt = render_project_research_prompt(project_research_prompt, task, project)
-        print(f"Running project research: {project['name']}")
-        run_codex(Path(project["path"]), prompt, full_report_path)
-
-        summary_prompt = render_project_summary_prompt(
-            project_summary_prompt,
-            task,
-            project,
-            full_report_path,
-        )
-        print(f"Running project summary: {project['name']}")
-        run_codex(Path(project["path"]), summary_prompt, summary_report_path)
-
     cross_project_analysis = output_dir / "02_cross_project_analysis.md"
     draft_tech_spec = output_dir / "03_draft_tech_spec.md"
     critic_review = output_dir / "04_critic_review.md"
 
-    print("Running cross-project merge")
-    run_codex(
-        root_dir,
-        render_cross_project_prompt(cross_project_prompt, task, summary_report_paths),
-        cross_project_analysis,
-    )
+    if stage_mode == "research":
+        require_project_dirs(task["projects"])
+        full_research_dir.mkdir(parents=True, exist_ok=True)
+        summary_research_dir.mkdir(parents=True, exist_ok=True)
 
-    print("Running draft technical specification")
-    run_codex(
-        root_dir,
-        render_draft_prompt(
-            draft_prompt,
-            task,
+        for index, project in enumerate(task["projects"], start=1):
+            full_report_path = full_report_paths[index - 1][1]
+            summary_report_path = summary_report_paths[index - 1][1]
+
+            prompt = render_project_research_prompt(project_research_prompt, task, project)
+            print(f"Running project research: {project['name']}")
+            run_codex(Path(project["path"]), prompt, full_report_path)
+
+            summary_prompt = render_project_summary_prompt(
+                project_summary_prompt,
+                task,
+                project,
+                full_report_path,
+            )
+            print(f"Running project summary: {project['name']}")
+            run_codex(Path(project["path"]), summary_prompt, summary_report_path)
+
+    if stage_mode in {"merge", "draft", "critic"}:
+        require_summary_files(summary_report_paths)
+
+    if stage_mode in {"research", "merge"}:
+        print("Running cross-project merge")
+        run_codex(
+            root_dir,
+            render_cross_project_prompt(cross_project_prompt, task, summary_report_paths),
             cross_project_analysis,
-            summary_report_paths,
-        ),
-        draft_tech_spec,
-    )
+        )
 
-    print("Running critic review")
-    run_codex(
-        root_dir,
-        render_critic_prompt(
-            critic_prompt,
-            task,
+    if stage_mode in {"research", "merge", "draft"}:
+        require_file("cross-project analysis", cross_project_analysis)
+        print("Running draft technical specification")
+        run_codex(
+            root_dir,
+            render_draft_prompt(
+                draft_prompt,
+                task,
+                cross_project_analysis,
+                summary_report_paths,
+            ),
             draft_tech_spec,
-            cross_project_analysis,
-            summary_report_paths,
-        ),
-        critic_review,
-    )
+        )
+
+    if stage_mode in {"research", "merge", "draft", "critic"}:
+        require_file("cross-project analysis", cross_project_analysis)
+        require_file("draft technical specification", draft_tech_spec)
+        print("Running critic review")
+        run_codex(
+            root_dir,
+            render_critic_prompt(
+                critic_prompt,
+                task,
+                draft_tech_spec,
+                cross_project_analysis,
+                summary_report_paths,
+            ),
+            critic_review,
+        )
 
     print()
     print("Created artifacts:")
@@ -534,6 +570,17 @@ def main() -> None:
         description="Run the tech-spec research pipeline from task.yaml."
     )
     parser.add_argument("task_yaml", help="Path to task YAML file.")
+    parser.add_argument(
+        "--skip-research",
+        action="store_true",
+        help="Alias for --from merge. Reuse existing project summary files.",
+    )
+    parser.add_argument(
+        "--from",
+        dest="from_stage",
+        choices=("research", "merge", "draft", "critic"),
+        help="Start pipeline from the selected stage.",
+    )
     args = parser.parse_args()
 
     task_path = Path(args.task_yaml).expanduser()
@@ -542,7 +589,8 @@ def main() -> None:
     if not task_path.is_file():
         fail(f"Task YAML file does not exist: {task_path}")
 
-    run_pipeline(task_path)
+    stage_mode = normalize_stage_mode(args.skip_research, args.from_stage)
+    run_pipeline(task_path, stage_mode)
 
 
 if __name__ == "__main__":
