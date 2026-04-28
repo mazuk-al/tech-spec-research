@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Run a tech-spec research pipeline from a task YAML file.
-
-This runner intentionally supports only the small YAML subset used by
-tasks/example-task.yaml. It avoids external dependencies so the project stays
-easy to run locally.
-"""
+"""Run a tech-spec research pipeline from a task YAML file."""
 
 from __future__ import annotations
 
@@ -15,6 +10,8 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 
 SUPPORTED_PROVIDERS = {"codex", "claude-code", "local"}
@@ -27,119 +24,31 @@ def fail(message: str) -> None:
     raise SystemExit(1)
 
 
-def strip_inline_comment(value: str) -> str:
-    in_quote: str | None = None
-    escaped = False
-
-    for index, char in enumerate(value):
-        if escaped:
-            escaped = False
-            continue
-        if char == "\\":
-            escaped = True
-            continue
-        if char in {"'", '"'}:
-            if in_quote == char:
-                in_quote = None
-            elif in_quote is None:
-                in_quote = char
-            continue
-        if char == "#" and in_quote is None:
-            return value[:index].rstrip()
-
-    return value.strip()
-
-
-def parse_scalar(value: str) -> Any:
-    value = strip_inline_comment(value).strip()
-    if not value:
-        return ""
-
-    if value == "true":
-        return True
-    if value == "false":
-        return False
-
-    if (value.startswith('"') and value.endswith('"')) or (
-        value.startswith("'") and value.endswith("'")
-    ):
-        return value[1:-1]
-
-    return value
-
-
 def parse_task_yaml(path: Path) -> dict[str, Any]:
-    """Parse the supported task YAML subset.
+    if not path.is_file():
+        fail(f"Task YAML file not found: {path}")
 
-    Supported shapes:
-    - top-level scalar: key: "value"
-    - top-level dictionary with scalar fields
-    - top-level list of strings
-    - top-level list of dictionaries with scalar fields
-    """
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        fail(f"Unable to read task YAML file '{path}': {exc}")
 
-    task: dict[str, Any] = {}
-    current_key: str | None = None
-    current_item: dict[str, Any] | None = None
+    try:
+        loaded = yaml.safe_load(content)
+    except yaml.YAMLError as exc:
+        fail(f"Task YAML is invalid in '{path}': {exc}")
 
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        if not raw_line.strip() or raw_line.lstrip().startswith("#"):
-            continue
+    if loaded is None:
+        fail(f"Task YAML file is empty: {path}")
+    if not isinstance(loaded, dict):
+        fail(f"Task YAML root must be an object/mapping: {path}")
 
-        indent = len(raw_line) - len(raw_line.lstrip(" "))
-        line = raw_line.strip()
-
-        if indent == 0:
-            current_item = None
-            if ":" not in line:
-                fail(f"Invalid YAML line in {path}: {raw_line}")
-            key, value = line.split(":", 1)
-            key = key.strip()
-            value = parse_scalar(value)
-            if value == "":
-                task[key] = []
-                current_key = key
-            else:
-                task[key] = value
-                current_key = None
-            continue
-
-        if current_key is None:
-            fail(f"Unexpected nested YAML line in {path}: {raw_line}")
-
-        if line.startswith("- "):
-            if not isinstance(task[current_key], list):
-                fail(f"YAML key is not a list: {current_key}")
-            item = line[2:].strip()
-            if ":" in item:
-                key, value = item.split(":", 1)
-                current_item = {key.strip(): parse_scalar(value)}
-                task[current_key].append(current_item)
-            else:
-                task[current_key].append(parse_scalar(item))
-                current_item = None
-            continue
-
-        if current_item is not None and ":" in line:
-            key, value = line.split(":", 1)
-            current_item[key.strip()] = parse_scalar(value)
-            continue
-
-        if current_item is None and ":" in line:
-            if task[current_key] == []:
-                task[current_key] = {}
-            if not isinstance(task[current_key], dict):
-                fail(f"YAML key is not a dictionary: {current_key}")
-            key, value = line.split(":", 1)
-            task[current_key][key.strip()] = parse_scalar(value)
-            continue
-
-        fail(f"Unsupported YAML line in {path}: {raw_line}")
-
-    return task
+    return loaded
 
 
 def require_string(task: dict[str, Any], key: str) -> str:
+    if key not in task:
+        fail(f"task.yaml is missing required field '{key}'.")
     value = task.get(key)
     if not isinstance(value, str) or not value.strip():
         fail(f"task.yaml must define non-empty string field '{key}'.")
@@ -147,7 +56,9 @@ def require_string(task: dict[str, Any], key: str) -> str:
 
 
 def require_string_list(task: dict[str, Any], key: str) -> list[str]:
-    value = task.get(key, [])
+    if key not in task:
+        fail(f"task.yaml is missing required field '{key}'.")
+    value = task.get(key)
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         fail(f"task.yaml field '{key}' must be a list of strings.")
     return value
@@ -169,9 +80,13 @@ def optional_bool_mapping(task: dict[str, Any], key: str) -> dict[str, bool]:
 
 
 def require_projects(task: dict[str, Any]) -> list[dict[str, str]]:
+    if "projects" not in task:
+        fail("task.yaml is missing required field 'projects'.")
     value = task.get("projects")
-    if not isinstance(value, list) or not value:
-        fail("task.yaml must define non-empty projects[].")
+    if not isinstance(value, list):
+        fail("task.yaml field 'projects' must be a list.")
+    if not value:
+        fail("task.yaml field 'projects' must not be empty.")
 
     projects: list[dict[str, str]] = []
     for index, project in enumerate(value, start=1):
@@ -179,6 +94,8 @@ def require_projects(task: dict[str, Any]) -> list[dict[str, str]]:
             fail(f"projects[{index}] must be an object.")
         normalized: dict[str, str] = {}
         for field in ("name", "path", "focus"):
+            if field not in project:
+                fail(f"projects[{index}] is missing required field '{field}'.")
             field_value = project.get(field)
             if not isinstance(field_value, str) or not field_value.strip():
                 fail(f"projects[{index}].{field} must be a non-empty string.")

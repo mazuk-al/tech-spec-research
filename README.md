@@ -12,7 +12,7 @@ It is intended for tasks where a change spans multiple projects. The tool runs a
 4. Draft a Technical Specification in Russian or English.
 5. Review the draft for risks, gaps, assumptions, and open questions.
 
-This repository is intentionally small. It does not include dependency management or package scripts.
+This repository is intentionally small and uses a lightweight Python dependency list via `requirements.txt`.
 
 ## Principles
 
@@ -67,6 +67,7 @@ Later pipeline stages use project summaries instead of full research reports to 
 The v2.2 runner reads `task.yaml` directly:
 
 ```bash
+python -m pip install -r requirements.txt
 python scripts/run_task.py tasks/example-task.yaml
 ```
 
@@ -140,7 +141,7 @@ Supported `llm_provider` values:
 - `claude-code`: planned, not implemented in v2.2
 - `local`: planned, not implemented in v2.2
 
-The runner includes a small built-in parser for the supported task YAML shape. It is not a general-purpose YAML parser.
+The runner parses `task.yaml` with `PyYAML` (`yaml.safe_load`) to support standard YAML features safely.
 
 In v2.2, `token_saving.enabled` and `token_saving.use_summaries_for_later_stages` default to `true`. Non-summary mode is not implemented.
 
@@ -184,6 +185,8 @@ Additional task files in `tasks/` are ignored by git by default, so local paths 
 ## Requirements
 
 - Python 3
+- Python dependencies from `requirements.txt`:
+  - `PyYAML`
 - Bash
 - Codex CLI available as `codex`
 - Local access to the projects listed in `task.yaml`
