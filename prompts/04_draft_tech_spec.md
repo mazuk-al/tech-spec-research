@@ -1,51 +1,55 @@
 # Draft Technical Specification Prompt
 
-На основе research-отчётов и cross-project analysis подготовь черновик Technical Specification на русском языке.
+Prepare the draft Technical Specification in the requested draft language.
 
-Не придумывай неподтверждённые детали. Если информация не подтверждена research-отчётами, явно пометь её как assumption. Если данных не хватает, добавь вопрос в `Открытые вопросы`.
+Do not invent unconfirmed details. If information is not supported by the research reports or cross-project analysis, explicitly mark it as an assumption. If information is missing, add it to `Open questions`.
+
+Write all section headings and body text in the requested draft language.
 
 ## Input
 
-- Название задачи: `{{task_title}}`
-- Цель: `{{goal}}`
+- Task title: `{{task_title}}`
+- Goal: `{{goal}}`
+- Draft language: `{{draft_language}}`
 - Cross-project analysis: `{{cross_project_analysis}}`
 - Project reports: `{{project_reports}}`
 
-## Формат ответа
+## Output Format
 
-Верни Markdown-документ со следующими разделами:
+Return a Markdown document with the following canonical structure.
 
-## Цель
+Use these English section names as canonical meaning, but translate or adapt the headings to the requested draft language:
 
-## Контекст
+## Goal
 
-## Текущий процесс
+## Context
 
-## Требуемое изменение
+## Current process
 
-## Пользовательские сценарии
+## Required change
 
-## Backend-изменения
+## User scenarios
 
-## Frontend-изменения
+## Backend changes
 
-## API / контракты
+## Frontend changes
 
-## Роли и права
+## API / contracts
 
-## Валидации
+## Roles and permissions
 
-## Интеграции
+## Validations
 
-## Логирование
+## Integrations
 
-## Информационная безопасность
+## Logging
 
-## Ошибки и edge cases
+## Information security
 
-## Критерии приёмки
+## Errors and edge cases
 
-## Открытые вопросы
+## Acceptance criteria
 
-## Риски
+## Open questions
 
+## Risks
