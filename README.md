@@ -200,6 +200,15 @@ Codex invocation flags used by the runners:
 - `--sandbox read-only`
 - `--output-last-message`
 
+## Development Checks
+
+Run the basic local checks before pushing changes:
+
+```bash
+python -m py_compile scripts/run_task.py
+python -m unittest
+```
+
 ## Outputs
 
 The pipeline writes these Markdown artifacts to `OUTPUT_DIR`:
