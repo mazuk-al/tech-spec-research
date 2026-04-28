@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -15,7 +14,6 @@ import yaml
 
 
 SUPPORTED_PROVIDERS = {"codex", "claude-code", "local"}
-IMPLEMENTED_PROVIDERS = {"codex"}
 SUPPORTED_DRAFT_LANGUAGES = {"ru", "en"}
 
 
@@ -132,9 +130,6 @@ def validate_task(task: dict[str, Any]) -> dict[str, Any]:
             f"'{llm_provider}'. Supported values: codex, claude-code, local."
         )
 
-    if llm_provider not in IMPLEMENTED_PROVIDERS:
-        fail(f"Provider '{llm_provider}' is planned but not implemented in v2.2.")
-
     if (
         token_saving["enabled"] is not True
         or token_saving["use_summaries_for_later_stages"] is not True
@@ -190,19 +185,47 @@ def markdown_list(values: list[str]) -> str:
     return "\n".join(f"- {value}" for value in values)
 
 
-def run_codex(workdir: Path, prompt: str, output_file: Path) -> None:
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    command = [
-        "codex",
-        "exec",
-        "--skip-git-repo-check",
-        "--sandbox",
-        "read-only",
-        "--output-last-message",
-        str(output_file),
-        prompt,
-    ]
-    subprocess.run(command, cwd=workdir, check=True)
+class LlmProvider:
+    def run(self, workdir: Path, prompt: str, output_file: Path) -> None:
+        raise NotImplementedError
+
+
+class CodexProvider(LlmProvider):
+    def run(self, workdir: Path, prompt: str, output_file: Path) -> None:
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        command = [
+            "codex",
+            "exec",
+            "--skip-git-repo-check",
+            "--sandbox",
+            "read-only",
+            "--output-last-message",
+            str(output_file),
+            prompt,
+        ]
+        subprocess.run(command, cwd=workdir, check=True)
+
+
+class ClaudeCodeProvider(LlmProvider):
+    def run(self, workdir: Path, prompt: str, output_file: Path) -> None:
+        fail("llm_provider 'claude-code' is declared but not implemented yet.")
+
+
+class LocalProvider(LlmProvider):
+    def run(self, workdir: Path, prompt: str, output_file: Path) -> None:
+        fail("llm_provider 'local' is declared but not implemented yet.")
+
+
+def create_llm_provider(provider_name: str) -> LlmProvider:
+    if provider_name == "codex":
+        return CodexProvider()
+    if provider_name == "claude-code":
+        return ClaudeCodeProvider()
+    if provider_name == "local":
+        return LocalProvider()
+
+    supported = ", ".join(sorted(SUPPORTED_PROVIDERS))
+    fail(f"Unsupported llm_provider '{provider_name}'. Supported values: {supported}.")
 
 
 def require_file(label: str, path: Path) -> None:
@@ -596,6 +619,7 @@ def render_critic_prompt(
 def run_pipeline(task_path: Path, stage_mode: str) -> None:
     root_dir = Path(__file__).resolve().parent.parent
     task = validate_task(parse_task_yaml(task_path))
+    llm_provider = create_llm_provider(task["llm_provider"])
     validation: dict[str, list[str]] = {"warnings": [], "errors": []}
 
     output_dir = Path(task["output_dir"]).expanduser()
@@ -636,7 +660,7 @@ def run_pipeline(task_path: Path, stage_mode: str) -> None:
 
             prompt = render_project_research_prompt(project_research_prompt, task, project)
             print(f"Running project research: {project['name']}")
-            run_codex(Path(project["path"]), prompt, full_report_path)
+            llm_provider.run(Path(project["path"]), prompt, full_report_path)
             validate_full_research_file(full_report_path, validation)
 
             summary_prompt = render_project_summary_prompt(
@@ -646,7 +670,7 @@ def run_pipeline(task_path: Path, stage_mode: str) -> None:
                 full_report_path,
             )
             print(f"Running project summary: {project['name']}")
-            run_codex(Path(project["path"]), summary_prompt, summary_report_path)
+            llm_provider.run(Path(project["path"]), summary_prompt, summary_report_path)
             validate_summary_file(summary_report_path, validation)
 
     if stage_mode in {"merge", "draft", "critic"}:
@@ -654,7 +678,7 @@ def run_pipeline(task_path: Path, stage_mode: str) -> None:
 
     if stage_mode in {"research", "merge"}:
         print("Running cross-project merge")
-        run_codex(
+        llm_provider.run(
             root_dir,
             render_cross_project_prompt(cross_project_prompt, task, summary_report_paths),
             cross_project_analysis,
@@ -664,7 +688,7 @@ def run_pipeline(task_path: Path, stage_mode: str) -> None:
     if stage_mode in {"research", "merge", "draft"}:
         validate_pipeline_output("cross-project analysis", cross_project_analysis)
         print("Running draft technical specification")
-        run_codex(
+        llm_provider.run(
             root_dir,
             render_draft_prompt(
                 draft_prompt,
@@ -680,7 +704,7 @@ def run_pipeline(task_path: Path, stage_mode: str) -> None:
         validate_pipeline_output("cross-project analysis", cross_project_analysis)
         validate_pipeline_output("draft technical specification", draft_tech_spec)
         print("Running critic review")
-        run_codex(
+        llm_provider.run(
             root_dir,
             render_critic_prompt(
                 critic_prompt,

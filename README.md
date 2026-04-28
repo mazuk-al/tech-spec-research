@@ -138,8 +138,10 @@ Supported `draft_language` values:
 Supported `llm_provider` values:
 
 - `codex`: implemented
-- `claude-code`: planned, not implemented in v2.2
-- `local`: planned, not implemented in v2.2
+- `claude-code`: reserved, not implemented yet
+- `local`: reserved, not implemented yet
+
+The Python runner uses a provider abstraction internally. `CodexProvider` is the only implemented provider; `ClaudeCodeProvider` and `LocalProvider` are placeholders for future integrations.
 
 The runner parses `task.yaml` with `PyYAML` (`yaml.safe_load`) to support standard YAML features safely.
 
