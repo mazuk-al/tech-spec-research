@@ -1,5 +1,7 @@
 # tech-spec-research-runner
 
+![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
+
 `tech-spec-research-runner` is a minimal local workflow for researching several codebases before drafting a Technical Specification.
 
 It is intended for tasks where a change spans multiple projects. The tool runs a sequence of Codex prompts that:
