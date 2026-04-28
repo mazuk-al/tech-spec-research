@@ -14,6 +14,20 @@ It is intended for tasks where a change spans multiple projects. The tool runs a
 
 This repository is intentionally small and uses a lightweight Python dependency list via `requirements.txt`.
 
+## Current Capabilities
+
+- Python runner
+- `task.yaml` as the source of truth
+- Any number of `projects[]`
+- Codex provider implemented through a provider abstraction
+- `draft_language: ru` and `draft_language: en`
+- Full research plus summary research artifacts
+- Stage control and resume support
+- Artifact validation
+- `index.md` generation
+- Basic tests and GitHub Actions CI
+- Apache-2.0 license
+
 ## Principles
 
 - Research must be read-only.
@@ -25,6 +39,8 @@ This repository is intentionally small and uses a lightweight Python dependency 
 ## Project structure
 
 ```text
+.github/
+  workflows/
 tasks/
   example-task.yaml
 prompts/
@@ -38,6 +54,9 @@ artifacts/
 scripts/
   run_task.py
   run-example-task.sh
+tests/
+requirements.txt
+LICENSE
 README.md
 ```
 
@@ -45,9 +64,9 @@ README.md
 
 `scripts/run-current-task.sh` is also ignored. Use it as a local working copy if you need task-specific values that should not be published.
 
-## Flow
+## Pipeline Flow
 
-The v2.2 flow is:
+Current flow:
 
 1. Describe the task in a task YAML file.
 2. Run read-only full research for each listed project.
@@ -64,14 +83,18 @@ Later pipeline stages use project summaries instead of full research reports to 
 
 ## Usage
 
-The v2.2 runner reads `task.yaml` directly:
+The runner reads `task.yaml` directly. `tasks/example-task.yaml` is a template and is not intended to run until placeholder paths are replaced.
 
 ```bash
-python -m pip install -r requirements.txt
-python scripts/run_task.py tasks/example-task.yaml
+python3 -m pip install -r requirements.txt
+cp tasks/example-task.yaml tasks/current-task.yaml
+# edit tasks/current-task.yaml and replace /absolute/path/to/... placeholders
+python3 scripts/run_task.py tasks/current-task.yaml
 ```
 
 `task.yaml` is the source of truth. The runner supports any number of projects in `projects[]`.
+
+The `/absolute/path/to/...` values in `tasks/example-task.yaml` are placeholder paths. Replace them with real absolute paths to local projects before running the pipeline.
 
 ## Stage Control
 
@@ -138,14 +161,21 @@ Supported `draft_language` values:
 Supported `llm_provider` values:
 
 - `codex`: implemented
-- `claude-code`: reserved, not implemented yet
-- `local`: reserved, not implemented yet
+- `claude-code`: planned, not implemented yet
+- `local`: planned, not implemented yet
 
 The Python runner uses a provider abstraction internally. `CodexProvider` is the only implemented provider; `ClaudeCodeProvider` and `LocalProvider` are placeholders for future integrations.
 
-The runner parses `task.yaml` with `PyYAML` (`yaml.safe_load`) to support standard YAML features safely.
+The runner uses PyYAML to parse task files.
 
-In v2.2, `token_saving.enabled` and `token_saving.use_summaries_for_later_stages` default to `true`. Non-summary mode is not implemented.
+`token_saving.enabled` and `token_saving.use_summaries_for_later_stages` default to `true`. Non-summary mode is not implemented.
+
+## Trust and Review
+
+- Generated draft Technical Specifications are not a source of truth.
+- All generated specs must be reviewed by engineers and product owners.
+- Code references and assumptions must be verified before sharing.
+- Missing evidence must not be treated as confirmed behavior.
 
 ## Legacy Bash Runner
 
@@ -179,7 +209,7 @@ cp tasks/example-task.yaml tasks/current-task.yaml
 Then edit `tasks/current-task.yaml` and run:
 
 ```bash
-python scripts/run_task.py tasks/current-task.yaml
+python3 scripts/run_task.py tasks/current-task.yaml
 ```
 
 Additional task files in `tasks/` are ignored by git by default, so local paths and task-specific details are not published. `scripts/run-current-task.sh` is also ignored for compatibility with the v1 bash workflow.
@@ -205,9 +235,11 @@ Codex invocation flags used by the runners:
 Run the basic local checks before pushing changes:
 
 ```bash
-python -m py_compile scripts/run_task.py
-python -m unittest
+python3 -m py_compile scripts/run_task.py
+python3 -m unittest
 ```
+
+GitHub Actions CI runs these checks on push and pull request.
 
 ## Outputs
 
@@ -232,4 +264,8 @@ OUTPUT_DIR/
 
 `index.md` is created in `OUTPUT_DIR` after each successful run. It contains task metadata, projects, artifact paths, validation summary, and continue commands.
 
-These files are local working artifacts and are ignored by git.
+All generated files under `OUTPUT_DIR` are local working artifacts. When `OUTPUT_DIR` is under `artifacts/`, they are ignored by git.
+
+## License
+
+Apache-2.0.
